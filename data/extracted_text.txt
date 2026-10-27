@@ -1,0 +1,1081 @@
+
+================================================================================
+EXTRACTING: proposal.pdf
+================================================================================
+Pages: 7
+
+----- PAGE 1 -----
+Project Proposal: Modeling Malware 
+Concept Drift via Continuous-Time 
+Neural ODEs 
+ 
+1. Background and Motivation 
+Machine-learned malware classifiers routinely score above 0.99 F1 in static, 
+cross-validated evaluations, yet post-deployment performance can degrade by as much 
+as 50% within months. This is not a symptom of poor tuning — it is concept drift: 
+attackers continuously mutate code, adopt new packers, and change delivery 
+infrastructure, so the statistical relationship between a binary's features and its true 
+label shifts over time. Standard k-fold evaluation hides this problem entirely, because 
+randomly splitting a chronologically evolving dataset leaks future malware variants into 
+training, producing an illusion of robustness that the TESSERACT framework 
+(Pendlebury et al., 2019) exposed as a pervasive spatio-temporal bias in the field. 
+Two existing tools fall short of fixing this. Static classifiers (Random Forests, XGBoost, 
+MLPs) freeze a decision boundary at training time and have no mechanism for tracking 
+how malware clusters migrate through feature space. Discrete sequence models 
+(RNNs, LSTMs, GRUs) add some temporal awareness but assume fixed, regularly 
+spaced time steps — an assumption malware sampling violates constantly, since a 
+threat actor may release a dozen variants in a week, then go quiet for months. Neither 
+approach represents drift as what it actually is: a continuous process happening 
+between observations. 
+This project proposes to model malware evolution directly as a continuous-time 
+dynamical system using a Latent Neural ODE. This reframes drift-resilient detection 
+
+----- PAGE 2 -----
+from a periodic-retraining problem into a forecasting problem: instead of a boundary 
+that goes stale, the model learns the rules governing how the boundary moves. As a 
+secondary extension — pursued only once the core model is validated and stable — we 
+plan to test whether augmenting it with a discrete jump mechanism improves handling 
+of sudden, discontinuous shifts (e.g., a zero-day disclosure or a geopolitical shock). 
+This project is scoped in two explicit tiers throughout: a core deliverable we are 
+committing to, and a stretch extension we will attempt if time and stability allow. 
+2. Clearly Defined Problem Statement 
+1.​ Core: Build and rigorously evaluate a Latent Neural ODE classifier for Windows 
+PE malware that models concept drift as a continuous vector field, and 
+demonstrate — under strict chronological (TESSERACT-style) evaluation — that it 
+degrades significantly less over time than static baselines, while remaining 
+trainable on a single consumer-grade GPU. 
+2.​ Stretch: If the core model is stable, extend it with a discrete jump network and 
+evaluate whether it improves classification stability through an abrupt-drift 
+window, compared to the non-jump Latent ODE. 
+3. Objectives of the Project 
+Core Objectives (Committed) 
+●​
+ 
+Technical Objective 
+Implementation Strategy 
+Current Baseline 
+Target Metric 
+Temporal drift 
+resilience 
+Latent Neural ODE with 
+continuous vector field, trained 
+via the adjoint sensitivity 
+method 
+Static XGBoost / 
+LightGBM trained on 
+early months; 
+documented AUROC 
+decay of up to ~50% 
+AUT trajectory stays 
+within ~10% of 
+initial AUROC 
+Class-imbalance 
+robustness 
+Focal Loss (tuned focusing 
+parameter γ) in place of 
+cross-entropy 
+Cross-entropy 
+baseline 
+Macro-averaged F1 
+on malware subsets 
+≥ baseline 
+
+----- PAGE 3 -----
+Technical Objective 
+Implementation Strategy 
+Current Baseline 
+Target Metric 
+over-weights easy 
+benign samples 
+Computational 
+feasibility 
+Adjoint sensitivity method for 
+O(1)-memory backpropagation 
+Naive backprop 
+requires O(N) 
+memory, infeasible 
+on consumer 
+hardware 
+Full training 
+completes on a 
+single RTX 4090 
+GPU 
+Stretch Objectives (Contingent) 
+Technical Objective 
+Implementation Strategy 
+Current Baseline 
+Target Metric 
+Discontinuous / 
+sudden-drift 
+handling 
+Stochastic jump network that 
+resets the latent state on OOD 
+observations 
+Standard Latent 
+ODE bound by 
+Picard–Lindelöf 
+theorem 
+Stable classification 
+through abrupt-drift 
+window 
+4. Proposed Dataset & Access Source 
+Dataset: BODMAS (Blue Hexagon Open Dataset for Malware Analysis) — 134,435 PE 
+samples collected over a contiguous 14-month window (Aug 2019–Sep 2020). Features 
+include 2,381-dimensional vectors spanning PE metadata and histograms. 
+●​ Why BODMAS over alternatives: EMBER (2018) and SOREL-20M offer larger scale 
+(SOREL: ~20M samples) but lack BODMAS's temporal granularity; per 
+TESSERACT-style findings, scale alone does not mitigate drift if evaluation 
+windows aren't strictly chronological. 
+Data Partitioning (Chronological): 
+​
+Train: Months 0–7 (Aug 2019–Mar 2020) 
+​
+Validation: Months 8–9 (Apr–May 2020) 
+​
+Test: Months 10–13 (Jun–Sep 2020) 
+●​ Validation — Months 8–9 (Apr–May 2020), used only for hyperparameter tuning 
+and ODE solver tolerance calibration 
+
+----- PAGE 4 -----
+●​ Test — Months 10–13 (Jun–Sep 2020) 
+●​ Dataset is publicly downloadable (Yang et al., 2021 / BODMAS GitHub) with no 
+access restrictions, rate limits, or PII/GDPR exposure — features are structural 
+binary metadata, not personal data. 
+●​ Natural experiment: The March 2020 boundary between training and validation 
+coincides with the onset of COVID-19-themed malware campaigns, providing a 
+real, documented sudden-drift event — this is what the stretch-goal jump 
+mechanism (Section 3) would be tested against, if reached. 
+●​ Preprocessing: An encoder network compresses the 2,381-dim LIEF feature 
+vector into a compact latent space before ODE integration; no additional 
+augmentation is needed since features are already numerically pre-extracted. 
+5. Proposed Deep Learning Methodology 
+Core Architecture: Latent Neural ODE 
+​
+Encoder: Maps feature vectors into low-dimensional latent state z(t₀). 
+​
+Continuous Integration: Evolves state via dz(t)/dt = f(z(t), t; θ) using 
+adaptive-step solvers. 
+​
+Decoder: Maps evolved latent state to final classification logit. 
+●​ Encoder: maps the 2,381-dim PE feature vector into a low-dimensional latent 
+state z(t₀). 
+●​ Continuous integration: the latent state evolves as dz(t)/dt = f(z(t), t; θ), 
+integrated forward with an adaptive-step solver (Dormand–Prince / dopri5) to 
+project the state to a future time. 
+●​ Decoder: a standard MLP maps the evolved latent state to the benign/malicious 
+logit. 
+●​ Planned Extension (stretch, time-permitting): Jump Network. On detection of a 
+highly anomalous (out-of-distribution) sample, the trajectory would be reset via a 
+separate network, z(τ⁺) = h(z(τ⁻), x_τ; φ), bypassing the continuous flow to 
+absorb sudden shifts. This is scoped as an addition layered onto a working core 
+model, not a prerequisite for it — see Section 8 for when it is attempted. 
+●​ Optimization techniques (core): Adjoint sensitivity method for constant-memory 
+backpropagation through the solver; Focal Loss to counter class imbalance; 
+kinetic/Jacobian regularization to keep the learned vector field smooth and 
+control the Number-of-Function-Evaluations (NFE). 
+
+----- PAGE 5 -----
+●​ Baselines for comparison (core): XGBoost, LightGBM, and a parameter-matched 
+MLP (all static), trained on identical data splits. 
+●​ Technology stack: PyTorch with a Neural-ODE library (e.g., torchdiffeq) for the 
+solver and adjoint method; scikit-learn / xgboost / lightgbm for baselines. 
+●​ Hardware: Single consumer GPU (RTX 4090) or Colab Pro as primary target, 
+given the adjoint method's constant memory footprint; university cluster as 
+fallback for ablation sweeps. 
+●​ Fallback methodology: If the core Latent ODE struggles with high-dimensional 
+virtual drift (see Section 6 risk mitigation), pivot to a Continuous Normalizing 
+Flow (CNF) with flow-matching training as an alternative core model, rather than 
+layering it onto the ODE. 
+6. Feasibility & Risk Mitigation 
+●​ Data feasibility: BODMAS is a public, static-download academic dataset — no API 
+rate limits, no PII, no GDPR exposure (structural PE metadata only). 
+●​ Computational feasibility: The adjoint method keeps backward-pass memory 
+constant regardless of solver steps, making training tractable on a single 
+consumer GPU; baseline models (XGBoost/LightGBM/MLP) are inexpensive by 
+comparison. Estimated training time should be scoped once solver step-size 
+behavior is profiled in Week 1–2 (see schedule). 
+●​ Deployment feasibility: This is a research/evaluation proposal, not a production 
+deployment; the deliverable is a set of quantitative results (AUT curves, tables) 
+and a written report, not a production or demonstration interface. 
+●​ Primary technical risk — NFE explosion / stiff ODEs: As the learned vector field 
+grows more contorted to separate increasingly sophisticated malware, the ODE 
+can become numerically stiff, forcing adaptive solvers like dopri5 to take 
+vanishingly small steps and causing training time (and adjoint-method numerical 
+error) to blow up.Mitigation: monitor solver step counts during training; if 
+stiffness is detected, switch from explicit (dopri5) to an implicit single-step 
+solver; apply kinetic/Jacobian regularization to keep the vector field smooth. 
+●​ Plan B: if core Latent ODE training remains unstable after mitigation, pivot to the 
+CNF/flow-matching alternative described in Section 5, or fall back to a 
+periodically-retrained static baseline as a floor comparison. 
+●​ Secondary risk — stretch goal contention: the jump network (Section 3) depends 
+on the core model being stable well ahead of the semester's end. If Weeks 1–11 
+
+----- PAGE 6 -----
+run over schedule, the jump extension is dropped without affecting the core 
+deliverable or grading criteria, since it was never a dependency of the primary 
+claim. 
+7. Expected Technical Deliverables 
+●​ Minimum Deliverable (core, committed): 
+●​ Static baseline profiling (XGBoost/LightGBM/MLP) to quantify raw drift 
+magnitude. 
+●​ Latent ODE temporal integration and evaluation on the same held-out future 
+months. 
+●​ Longitudinal drift quantification via the Area Under Time (AUT) metric — AUROC 
+plotted month-by-month rather than as a single aggregate score. 
+●​ A written report and result plots comparing all models under identical 
+chronological splits. 
+●​ Extended Deliverable (stretch, time-permitting): 
+●​ Jump network extension and evaluation across the March 2020 sudden-drift 
+window (Section 4). 
+●​ Architectural ablations (dopri5 vs. fixed-step rk4; decoupled encoder/decoder 
+without the ODE) to isolate what the continuous integration actually contributes. 
+●​ Latent-space visualization via UMAP, comparing initial vs. 
+chronologically-evolved embeddings. 
+●​ Framing of the contribution: Most prior work treats drift as a retraining problem — 
+periodically re-labeling and re-fitting a static boundary. This project instead tests 
+whether adversarial evolution can be usefully modeled as a continuous process 
+the network learns directly, rather than a boundary requiring periodic re-fitting — 
+with sudden-shift handling investigated as a planned, clearly-scoped extension 
+once the core continuous-time claim is established. 
+●​ 
+8. Project Schedule & References 
+●​ Duration: ~16-week single-semester scope, split into a committed core phase 
+and a contingent extension phase. 
+●​
+ 
+
+----- PAGE 7 -----
+Weeks 
+Milestone 
+Tier 
+1–2 
+Data acquisition & preprocessing; build chronological splits. 
+Core 
+3–4 
+Static baseline training & profiling (XGBoost, MLP). 
+Core 
+5–9 
+Latent ODE implementation & adjoint method profiling. 
+Core 
+10–11 
+Longitudinal AUT evaluation & baseline comparison. 
+Core 
+12–13 
+Final results consolidation and report writing. 
+Core 
+14–16 
+Jump network extension & architectural ablations. 
+Stretch 
+●​ Chen, R. T. Q., Rubanova, Y., Bettencourt, J., & Duvenaud, D. (2018). Neural 
+Ordinary Differential Equations. NeurIPS. https://arxiv.org/abs/1806.07366 
+●​ Rubanova, Y., Chen, R. T. Q., & Duvenaud, D. (2019). Latent Ordinary Differential 
+Equations for Irregularly-Sampled Time Series. NeurIPS. 
+https://proceedings.neurips.cc/paper/2019/hash/42a6845a557bef704ad8ac9cb
+4461d43-Abstract.html 
+●​ Herrera, C., Krach, F., & Teichmann, J. (2020). Neural Jump Ordinary Differential 
+Equations: Consistent Continuous-Time Prediction and Filtering. 
+arXiv:2006.04727. https://arxiv.org/pdf/2006.04727 
+●​ Pendlebury, F., Pierazzi, F., Jordaney, R., Kinder, J., & Cavallaro, L. (2019). 
+TESSERACT: Eliminating Experimental Bias in Malware Classification across 
+Space and Time. USENIX Security. 
+https://www.usenix.org/conference/usenixsecurity19/presentation/pendlebury 
+●​ Yang, L., Ciptadi, A., Laziuk, I., Ahmadzadeh, A., & Wang, G. (2021). BODMAS: An 
+Open Dataset for Learning-based Temporal Analysis of PE Malware. DLS. 
+https://gangw.cs.illinois.edu/DLS21_BODMAS.pdf 
+●​ BODMAS Dataset repository: https://github.com/whyisyoung/BODMAS 
+ 
+
+================================================================================
+EXTRACTING: Neural ODE Malware Drift Research (2).pdf
+================================================================================
+Pages: 15
+
+----- PAGE 1 -----
+Modeling Malware Concept Drift via 
+Continuous-Time Neural Differential 
+Equations 
+1. The Real-World Problem: Concept Drift in the 
+Malware Landscape 
+The Adversarial Arms Race and Classifier Degradation 
+The deployment of machine learning within cybersecurity has historically been characterized 
+by an ongoing and highly asymmetric adversarial arms race. Security vendors deploy 
+high-capacity models—ranging from gradient-boosted decision trees to deep neural 
+networks—trained on massive corpora of benign and malicious Portable Executable (PE) files. 
+In controlled, static evaluations, these models routinely achieve classification accuracy and F1 
+scores exceeding 0.991. However, post-deployment performance inevitably undergoes a 
+catastrophic degradation, sometimes dropping by as much as 50% in realistic longitudinal 
+evaluations3. 
+This degradation is not a symptom of algorithmic instability, inadequate model capacity, or 
+poor hyperparameter tuning; rather, it is a direct consequence of the adversary's continuous 
+evolution. Attackers deliberately mutate source code, adopt novel packing algorithms, alter 
+structural metadata, implement reflective loading, and utilize polymorphic engines to evade 
+detection5. Consequently, the statistical relationship between the extracted features of a 
+binary and its true label changes over time. This phenomenon is formally defined in machine 
+learning literature as concept drift, presenting one of the most significant barriers to 
+sustainable, automated threat detection5. 
+Formalizing Concept Drift in Cybersecurity 
+In standard supervised learning, the fundamental mathematical assumption is that the joint 
+probability distribution of the input features 
+ and labels 
+, denoted as 
+, 
+remains stationary across both the training and deployment phases. Concept drift represents 
+the severe violation of this core assumption. Within the context of malware classification, this 
+non-stationarity manifests in multiple distinct modalities, each presenting unique challenges to 
+statistical modeling5. 
+The various forms of drift require precise definitions to understand why static models fail and 
+why continuous-time modeling is mathematically necessary. 
+Drift Classification 
+Mathematical Definition 
+Cybersecurity Context 
+Real Concept Drift 
+The decision boundary 
+shifts. A code pattern or API 
+
+----- PAGE 2 -----
+call sequence historically 
+associated with benign 
+administrative software is 
+co-opted by a novel 
+ransomware family, altering 
+the conditional probability 
+of maliciousness. 
+Virtual Concept Drift 
+ 
+The underlying feature 
+distribution changes 
+without altering the 
+decision boundary. 
+Attackers shift their 
+infrastructure, utilizing 
+different compilers or 
+packing engines that alter 
+the structural entropy of 
+the PE file. 
+Gradual Drift 
+Slow, continuous variation 
+in 
+ 
+Polymorphic engines slowly 
+randomize binary 
+structures, causing 
+incremental, continuous 
+deviations in byte-level 
+histograms and string 
+statistics over a period of 
+months. 
+Sudden (Step) Drift 
+Abrupt, discontinuous shift 
+in 
+ 
+A zero-day vulnerability is 
+published, or a massive 
+geopolitical event triggers 
+an immediate, massive shift 
+in malware lures, payloads, 
+and delivery mechanisms. 
+Evaluation Biases and the Illusion of Solved Problems 
+The impact of concept drift has been systematically understated in historical cybersecurity 
+literature due to pervasive experimental biases. Research utilizing the TESSERACT evaluation 
+framework highlights that standard k-fold cross-validation inherently leaks future knowledge 
+into the training phase4. Because malware families evolve chronologically, randomly sampling a 
+
+----- PAGE 3 -----
+dataset to create training and testing splits virtually guarantees that future variants of a 
+malware family will be included in the training data. This temporal bias artificially inflates model 
+performance, giving a false impression of robustness3. 
+Furthermore, spatial bias occurs when the base rate of malware to benign software in the 
+testing dataset does not reflect real-world deployment conditions1. When the strict 
+spatio-temporal constraints defined by TESSERACT are rigorously enforced, the true 
+vulnerability of static models to concept drift becomes glaringly apparent12. This exposes the 
+massive financial and operational costs associated with continually retraining production 
+models, which currently require analysts to manually label drifting samples to update static 
+boundaries9. 
+To quantify this degradation objectively, the Area Under Time (AUT) metric provides a definitive 
+measure of robustness. Based on the trapezoidal rule, AUT captures a classifier's robustness to 
+time decay by integrating the Area Under the Receiver Operating Characteristic (AUROC) over 
+a sequence of future temporal testing blocks4. The failure of current models to maintain a 
+stable AUT score necessitates a paradigm shift in how temporal adversarial dynamics are 
+modeled. 
+2. Limitations of Prevailing Detection Architectures 
+The Static Classifier Trap 
+Traditional machine learning paradigms, including Random Forests, XGBoost, LightGBM, and 
+standard Multilayer Perceptrons (MLPs), learn a frozen decision boundary during the training 
+phase. These models operate under the implicit assumption that the topological relationship 
+between malicious and benign clusters in the high-dimensional feature space will remain 
+constant indefinitely. 
+When applied to a temporally shifting landscape, static models fail because they lack an 
+internal mechanism to account for the trajectory of adversarial evasion. If a model is trained on 
+data from a specific eight-month temporal window, the decision boundary is optimized 
+exclusively for the feature distributions present within that timeframe. By the twelfth month, 
+virtual and real drift will have caused the malware clusters to migrate to entirely new regions of 
+the feature space4. The static classifier, completely oblivious to this migration, continues to 
+apply the obsolete decision boundary. This results in a surge of false negatives as novel 
+malware evades detection, and a corresponding spike in false positives as benign software 
+adopts structural features previously correlated with malware. 
+The Inadequacies of Discrete Sequence Models 
+To incorporate temporal awareness, sequence models such as Recurrent Neural Networks 
+(RNNs), Long Short-Term Memory networks (LSTMs), and Gated Recurrent Units (GRUs) have 
+been frequently proposed. While highly effective in domains with regularly sampled time 
+series—such as audio processing, natural language, or financial tick data—these discrete-time 
+models exhibit critical vulnerabilities when applied to malware concept drift16. 
+The primary inadequacy stems from the assumption of fixed time steps. Standard RNNs 
+assume that observations arrive at uniform, discrete intervals. However, malware evolution and 
+sample collection are highly irregular. A specific threat actor might release dozens of variants of 
+
+----- PAGE 4 -----
+a trojan within a single week during an active campaign, followed by months of silence before 
+launching a newly obfuscated variant16. Discrete sequence models cannot naturally encode the 
+variable elapsed time between these observations without resorting to artificial binning or 
+time-delta concatenation, both of which severely degrade representational fidelity18. 
+Furthermore, sequence models rely on discrete latent state transitions. In an RNN, the hidden 
+state 
+ is updated via a discrete mapping: 
+. Between observation 
+time  and 
+, the model assumes the system state remains entirely static17. Yet, concept 
+drift is an active, continuous process occurring outside the observation window. The 
+adversary's codebase is evolving and the feature distribution is flowing smoothly through the 
+latent space even when defenders are not actively observing new samples. Discrete transitions 
+fail to capture this continuous underlying dynamic. 
+3. Core Insight: Continuous-Time Dynamics and 
+Neural ODEs 
+Shifting from Discrete Boundaries to Continuous Vector Fields 
+The profound limitations of static boundaries and discrete transitions necessitate a 
+fundamental architectural shift: modeling the continuous-time dynamics of malware feature 
+evolution. This is achieved through the application of Neural Ordinary Differential Equations 
+(Neural ODEs). First formalized by Chen et al. (2018), Neural ODEs replace the discrete 
+sequence of hidden layers in a deep neural network with a continuous formulation, 
+parameterizing the derivative of the hidden state using a neural network20. 
+Instead of learning a static boundary to separate clusters at a frozen point in time, the Neural 
+ODE learns a continuous vector field that dictates the rules governing how a malware sample's 
+features change over time. The continuous dynamics are defined by the initial value problem: 
+ 
+Where 
+ represents the latent representation of the malware sample at time , and the 
+function 
+, parameterized by a neural network, predicts the instantaneous rate of change 
+(the velocity) of the latent state18. To predict the future state of a malware family, the model 
+integrates this vector field forward in time using an off-the-shelf numerical ODE solver: 
+ 
+By learning the underlying currents of the feature space—such as the trajectory of increasing 
+entropy due to novel packing engines, or the gradual shift in imported DLLs due to new evasion 
+tactics—the Neural ODE can project a historical malware sample into the future. This enables 
+
+----- PAGE 5 -----
+the model to effectively anticipate where the malware cluster will move, providing proactive 
+classification capabilities that maintain robustness against gradual concept drift7. 
+Ensuring Theoretical Validity: The Necessity of Neural Jump ODEs 
+(NJODEs) 
+While standard Neural ODEs excel at modeling smooth, continuous trajectories, relying 
+exclusively on a continuous framework is theoretically insufficient for the realities of 
+cybersecurity. Concept drift in malware is characterized by a combination of continuous 
+gradual drift (e.g., polymorphic iteration) and sudden step-drift (e.g., the rapid exploitation of a 
+newly disclosed zero-day vulnerability, or a sudden change in global geopolitical events 
+dictating new attacker objectives)24. 
+Because ODE trajectories cannot cross each other and are mathematically bound by the 
+Picard-Lindelöf theorem, standard Neural ODEs struggle to model sudden, discontinuous 
+jumps in the state space18. An ODE assumes the evolution of features is a smooth 
+homeomorphism, which breaks down when a completely novel malware family appears 
+instantaneously in the wild. Therefore, to ensure the proposed solution is valid, the architecture 
+must be augmented from a standard Latent ODE to a Neural Jump Ordinary Differential 
+Equation (NJODE) framework25. 
+NJODEs are continuous-time hybrid models that alternate between continuous flows 
+(governed by the Neural ODE) and instantaneous state updates (jumps) triggered by specific 
+stochastic events25. This allows the model to capture the smooth evolution of an existing 
+malware family while simultaneously accommodating the abrupt emergence of a completely 
+novel feature distribution. 
+In the NJODE framework, continuous evolution is maintained between observations. However, 
+at the moment a new, highly anomalous malware sample 
+ is observed, the latent state 
+undergoes a memoryless jump update: 
+ 
+Where 
+ is a distinct neural network that maps the sudden observation directly into a new 
+position in the latent space, effectively resetting the initial conditions for the subsequent 
+continuous ODE flow25. This critical upgrade ensures the model remains mathematically sound 
+and highly performant against the erratic, discontinuous nature of real-world adversarial 
+behavior. 
+4. Mathematical Formulation of the Drift-Resilient 
+Architecture 
+The Latent NJODE Pipeline 
+To process high-dimensional malware features and integrate them through continuous time, 
+the architecture requires an intricate encoder-solver-decoder pipeline, heavily inspired by 
+Latent ODE formulations for irregularly sampled time series19. 
+
+----- PAGE 6 -----
+1. Dimensionality Reduction (Encoder): 
+Given a high-dimensional feature vector 
+ extracted from a PE file, a neural 
+network encoder maps this into a compact, lower-dimensional latent space 
+ (e.g., 
+). This dimensionality reduction filters out irrelevant structural noise and creates a 
+dense representation where continuous mathematical flows are tractable. 
+ 
+2. Continuous Integration (ODE Solver): 
+The initial latent state 
+ is treated as the initial condition for the differential equation. To 
+predict the state of the malware family at a future time 
+, the state is evolved continuously 
+across the temporal gap: 
+ 
+The solver utilizes adaptive step-size algorithms, such as the Dormand-Prince (dopri5) method, 
+which dynamically adjust the evaluation step size to explicitly trade off between numerical 
+precision and computational speed20. 
+3. Jump Mechanics for Sudden Drift: If a significant distributional shift is detected—such as 
+the arrival of an out-of-distribution sample that defies the current flow field—the NJODE 
+bypasses the continuous integral and applies the instantaneous jump map 
+ to reset the latent 
+trajectory, allowing the system to rapidly adapt to a novel threat landscape without being 
+bound by previous continuous dynamics28. 
+4. Classification (Decoder): 
+The temporally evolved latent state 
+ is subsequently passed through a standard 
+Multilayer Perceptron decoder to yield the final classification logit indicating whether the 
+evolved state represents a benign or malicious entity. 
+ 
+The Adjoint Sensitivity Method and Memory Efficiency 
+A primary historical barrier to implementing continuous-time deep learning was the immense 
+memory cost associated with backpropagation. Differentiating directly through the operations 
+of a numerical ODE solver requires storing every intermediate state evaluated during the 
+forward integration. This results in a memory complexity of 
+, where 
+ is the number of 
+steps taken by the solver. During complex optimization, this rapidly leads to out-of-memory 
+errors on standard hardware18. 
+
+----- PAGE 7 -----
+The mathematical solution that renders this continuous architecture highly scalable is the 
+Adjoint Sensitivity Method18. Instead of storing intermediate states, the adjoint method treats 
+the ODE solver as a black box and solves a second, augmented ODE backward in time to 
+compute the gradients of the loss function with respect to the initial state and the model 
+parameters. 
+Defining the adjoint state as 
+, its continuous dynamics are dictated by 
+the equation: 
+ 
+By utilizing the adjoint method, the memory cost of the backward pass drops from 
+ to 
+—remaining completely constant and independent of the number of steps taken by the 
+solver18. This mathematical elegance ensures that training the Latent NJODE model is highly 
+memory-efficient, permitting implementation on consumer-grade GPUs without the need for 
+distributed computing clusters. 
+Handling Imbalanced Data: Focal Loss Formulation 
+Malware datasets are inherently imbalanced, and concept drift tends to disproportionately 
+affect minority classes (e.g., highly targeted, rare advanced persistent threat payloads). 
+Standard Cross-Entropy loss heavily weights the easily classified majority samples, allowing the 
+model to achieve low loss by simply memorizing static benign software patterns. 
+To force the continuous dynamics to respect the intricate trajectories of rare, hard-to-classify 
+polymorphic variants, the model utilizes a Focal Loss formulation: 
+ 
+Setting the focusing parameter 
+ drastically down-weights the loss contributed by 
+simple, static files, forcing the ODE vector field to dedicate its representational capacity toward 
+learning the complex temporal flow of drifting malware clusters located near the highly 
+contested decision boundary. 
+5. Dataset Foundations: Evaluating Continuous 
+Dynamics 
+To effectively validate continuous-time domain adaptation and prove the efficacy of Neural 
+Jump ODEs against malware concept drift, the underlying dataset must possess explicit 
+timestamp metadata, realistic chronological ordering, and a sufficient temporal span. The 
+BODMAS (Blue Hexagon Open Dataset for Malware Analysis) repository is ideally suited for this 
+stringent requirement, surpassing alternatives like EMBER or SOREL-20M in temporal 
+granularity24. 
+
+----- PAGE 8 -----
+Statistical Profile and Structural Feature Space 
+The BODMAS dataset contains 134,435 samples—comprising 57,293 malware and 77,142 benign 
+PE files—collected over a contiguous 14-month window from August 2019 to September 
+202033. The explicit timestamp associated with each sample permits the precise modeling of 
+continuous-time evolution necessary for ODE integration. 
+Each sample is represented as a pre-extracted 2381-dimensional numeric feature vector. These 
+vectors are generated using the LIEF (Library to Instrument Executable Formats) framework, 
+which parses the structural integrity of the Windows Portable Executable format. The 2381 
+features encompass multiple orthogonal views of the binary, rendering the dataset highly 
+robust for analyzing complex feature drift31: 
+●​ PE Header Metadata: Metrics regarding the number of sections, entry point 
+coordinates, and file alignment configurations. 
+●​ Sectional Entropy: The statistical entropy of distinct PE sections (e.g., .text, .data). This is 
+vital for drift modeling, as the continuous adoption of novel cryptographic packers by 
+adversaries heavily influences entropy distributions. 
+●​ Import Address Table (IAT): Statistical summaries of the imported DLLs and specific API 
+calls (e.g., kernel32.dll, ws2_32.dll), which reflect ongoing changes in the functional 
+capabilities and payloads of the evolving malware. 
+●​ Byte-Level Histograms: Raw statistical distributions of the compiled byte code, offering 
+a low-level view of polymorphic mutations that occur over time31. 
+The Natural Experiment of COVID-19 Concept Drift 
+The 14-month span of the BODMAS dataset encapsulates one of the most significant periods 
+of cyber-adversarial adaptation in modern history. The first half of the dataset (August 2019 to 
+February 2020) establishes a pre-pandemic baseline of malware tactics, dominated by 
+standard variants of Emotet and various banking trojans33. 
+However, beginning in March 2020, the onset of the global COVID-19 pandemic catalyzed a 
+massive, documented shift in malware tactics, generating a surge of novel phishing lures, 
+healthcare-targeted ransomware, and entirely new delivery infrastructures. This provides an 
+unprecedented natural experiment for evaluating concept drift. The suddenness of this 
+transition is exactly why the proposed upgrade to Neural Jump ODEs is theoretically necessary; 
+the continuous vector field models the gradual drift of existing families, while the discrete jump 
+mechanism immediately accommodates the discontinuous emergence of pandemic-themed 
+payloads without fracturing the ODE solver24. 
+Comparative Baselines: EMBER and SOREL-20M 
+While datasets like EMBER (2018) and SOREL-20M provide massive scale—with SOREL 
+containing 20 million samples—they lack the rigorous, dense temporal granularity required for 
+high-fidelity ODE integration35. TESSERACT evaluations on Android datasets have proven that 
+scale alone does not mitigate the effects of concept drift if the temporal evaluation windows 
+are not strictly enforced12. BODMAS, explicitly designed to highlight temporal family evolution, 
+serves as the superior empirical foundation for proving the efficacy of continuous-time 
+dynamics. 
+
+----- PAGE 9 -----
+6. Experimental Protocol and Rigorous Evaluation 
+Framework 
+An optimal theoretical model is only as verifiable as its experimental methodology. To prevent 
+the spatial and temporal biases outlined by the TESSERACT framework3, the experimental 
+protocol enforces strict chronological partitioning, ensuring that the model is never exposed to 
+future feature distributions during the training phase. 
+Sequential Train-Validation-Test Splitting 
+The dataset is partitioned chronologically based on the precise monthly timestamps inherent 
+to BODMAS to simulate realistic deployment conditions37: 
+●​ Training Set (Months 0–7): August 2019 through March 2020. This allows the model to 
+learn the baseline vector field and the initial shocks of the early pandemic drift. 
+●​ Validation Set (Months 8–9): April 2020 through May 2020. This near-future data is 
+strictly used for hyperparameter tuning, early stopping, and calibrating the ODE solver 
+tolerances (e.g., setting the rtol and atol thresholds). Under no circumstances is the 
+model's performance on this set conflated with final testing. 
+●​ Testing Set (Months 10–13): June 2020 through September 2020. This far-future data 
+represents a severe concept drift scenario. The evaluation tests the model's ability to 
+extrapolate its learned continuous dynamics across an unobserved temporal gap. 
+The Five-Stage Experimental Hierarchy 
+To systematically prove the superiority of continuous-time dynamics in combating malware 
+drift, the evaluation executes a five-stage experimental protocol: 
+Experiment 1: Static Baseline Profiling State-of-the-art static classifiers—specifically 
+XGBoost, LightGBM, and an MLP matching the exact parameter count of the NJODE—are 
+trained strictly on Months 0–7. They are evaluated on the testing set to establish the 
+performance ceiling of non-temporal modeling. The observed decay in Area Under the 
+Receiver Operating Characteristic (AUROC) between the validation and test sets quantifies the 
+exact magnitude of the concept drift present in the data2. 
+Experiment 2: NJODE Temporal Integration 
+The Neural Jump ODE model is trained on the exact same Months 0–7 data. Because the 
+architecture actively learns the drift trajectory as a physical dynamic system, its evaluation on 
+Months 10–13 should exhibit a significantly attenuated performance drop compared to the 
+static baselines. 
+Experiment 3: Longitudinal Drift Quantification (AUT) To adhere to the highest standards of 
+cybersecurity evaluation, the results are tracked dynamically over time using the Area Under 
+Time (AUT) metric4. Rather than reporting a single aggregate score for the entire testing block, 
+performance is evaluated sequentially on each individual future month. By plotting AUROC 
+against continuous time (Months 8 through 13), a visual and statistical narrative is established. 
+While static baselines will display a steep negative slope indicating performance decay, a 
+successful NJODE will maintain a near-flat trajectory, definitively proving drift resilience over an 
+extended operational horizon4. 
+
+----- PAGE 10 -----
+Experiment 4: Architectural Ablation Studies To isolate the specific mechanisms responsible 
+for resilience, targeted ablations are performed. This includes decoupling the ODE 
+solver—routing the encoder directly to the decoder—to prove that the continuous integration, 
+and not merely the feature extraction network, is responsible for the performance retention. 
+Additionally, solver ablations comparing adaptive solvers (dopri5) against fixed-step solvers 
+(rk4) clarify the crucial trade-off between integration precision and computational overhead, 
+quantifying how solver choice impacts the detection of rapidly evolving malware families18. 
+Experiment 5: Latent Topological Visualization Because Neural ODEs are inherently 
+generative mappings, their latent space can be directly visualized to ensure the learned 
+dynamics correspond to physical reality. Using dimensionality reduction algorithms like UMAP, 
+the initial embedded states (
+) are plotted against the chronologically evolved states (
+). If 
+the continuous flow field is mathematically sound, the evolved states should exhibit distinct 
+chronological separation, visually confirming that the network has mathematically untangled 
+the complex topological knot of temporal concept drift38. 
+7. Identifying and Mitigating Systemic Risks in ODE 
+Training 
+While the theoretical foundation of Neural ODEs is mathematically elegant, their practical 
+deployment on highly non-stationary datasets introduces distinct engineering risks, particularly 
+regarding numerical stability and computational overhead. Overcoming these limitations is 
+necessary for a robust, deployable cybersecurity solution. 
+The NFE Explosion and Stiff ODEs 
+The most prominent systemic risk in continuous-time deep learning is the explosion of the 
+Number of Function Evaluations (NFE). As the model trains, the continuous flow it attempts to 
+map often becomes highly complex, contorted, and nonlinear as it tries to separate increasingly 
+sophisticated malware samples from benign software. When an ordinary differential equation 
+exhibits widely varying timescales—where certain latent components change rapidly while 
+others remain stable—the system is mathematically classified as a Stiff ODE39. 
+Standard adaptive explicit solvers, such as the widely utilized dopri5, struggle severely with 
+stiffness. To maintain numerical stability and satisfy predefined error tolerances, the explicit 
+solver is forced to take infinitesimally small step sizes. This causes the NFE to skyrocket 
+exponentially26. The resulting NFE explosion leads to drastically increased training times, 
+creates massive latency during inference, and can ultimately cause backpropagation via the 
+adjoint method to fail due to accumulated numerical rounding errors43. 
+To mitigate this critical bottleneck, the research protocol must dynamically monitor stiffness. If 
+stiffness is encountered during training on the BODMAS dataset, the architecture must 
+transition from explicit solvers to single-step implicit schemes. Implicit methods provide a 
+vastly superior framework for handling stiff dynamics without fracturing the step size, allowing 
+the neural ODE to accurately learn stiff systems without succumbing to stability collapse39. 
+Furthermore, implementing kinetic or Jacobian regularization techniques can heavily penalize 
+highly contorted vector fields, forcing the model to learn smoother, more easily integrated 
+
+----- PAGE 11 -----
+dynamics that keep NFE manageable without sacrificing predictive power27. 
+Alternative Generative Approaches: Continuous Normalizing Flows 
+(CNFs) 
+If the discriminative Latent NJODE model struggles to capture the sheer diversity of virtual drift 
+across the 2381-dimensional structural feature space, the methodology can pivot toward 
+modeling the exact probability density function of the malware features using Continuous 
+Normalizing Flows (CNFs)45. 
+CNFs construct an exact, invertible mapping between a simple base distribution (e.g., a 
+standard Gaussian) and the highly complex, non-stationary data distribution of the drifting 
+malware21. By leveraging the instantaneous change of variables formula—which elegantly 
+requires only the trace of the Jacobian rather than the computationally prohibitive 
+determinant—CNFs can track the exact likelihood of a malware sample over continuous time18. 
+Recent advances in flow matching bypass the need for log-density evaluation at every solver 
+step, training the network directly via regression to analytically prescribed velocity fields. This 
+dramatically accelerates training and provides non-asymptotic convergence bounds46. While 
+computationally heavier than a standard classifier, CNFs utilizing modern flow-matching 
+techniques offer an incredibly rigorous fallback strategy for modeling severe concept drift with 
+exact likelihood quantification45. 
+8. Foundational Literature and Future Research 
+Directions 
+The architecture defined in this report represents a novel synthesis that exists at the precise 
+intersection of three distinct, cutting-edge domains: continuous-time deep learning, rigorous 
+spatio-temporal cybersecurity evaluation, and longitudinal malware dataset benchmarking. 
+The mathematical foundation rests heavily upon the introduction of Neural ODEs by Chen et al. 
+(2018), which revolutionized the application of continuous-depth networks and the adjoint 
+sensitivity method20. This continuous paradigm was subsequently adapted for irregularly 
+sampled time series via Latent ODEs by Rubanova et al. (2019)19. However, the specific 
+vulnerability of pure ODEs to sudden, discontinuous state changes necessitated the integration 
+of Neural Jump ODEs (NJODEs), introduced by Herrera et al. (2020), providing the critical 
+mathematical machinery to handle sudden malware step-drift efficiently17. 
+Simultaneously, the experimental rigor demanded by this architecture is entirely derived from 
+the TESSERACT framework formulated by Pendlebury et al. (2019)2. Prior to TESSERACT, the 
+cybersecurity community fundamentally misunderstood the severity of concept drift due to 
+pervasive spatial and temporal experimental biases. The introduction of time-aware splits and 
+the Area Under Time (AUT) metric forces models to prove genuine predictive capability against 
+future data4. Finally, the execution of this experiment relies entirely on the BODMAS dataset 
+compiled by Yang et al. (2021), which provides the densely timestamped, realistic malware 
+vectors necessary for ODE integration24. 
+Prior literature has predominantly addressed malware concept drift via active learning and 
+discrete retraining loops—periodically labeling new, anomalous samples and updating the static 
+
+----- PAGE 12 -----
+decision boundary manually5. Similarly, while continuous-time networks like Latent ODEs and 
+NJODEs have seen vast success in healthcare time-series analysis and optimal financial 
+filtering25, their application to the high-dimensional structural features of drifting malware 
+represents a largely unexplored frontier. 
+Future research directions must focus on expanding the continuous-time framework to 
+graph-structured data. Malware execution traces can be naturally represented as Control Flow 
+Graphs (CFGs) or API call graphs. Integrating continuous dynamics with Graph Neural 
+Networks (GNNs) could allow the ODE to model not just the drift of structural features, but the 
+actual evolution of malicious behavioral execution paths over time10. 
+9. Conclusions and Strategic Implications 
+The pervasive phenomenon of concept drift dictates that static machine learning models 
+deployed in cybersecurity environments are inherently depreciating assets. As adversaries 
+continuously mutate code, leverage new packing engines, and adapt to global events, the 
+static decision boundaries protecting network infrastructure rapidly become obsolete, 
+necessitating costly manual retraining and leaving critical operational windows vulnerable to 
+novel threats. 
+By upgrading the static detection paradigm to a Neural Jump Ordinary Differential Equation 
+architecture, this framework ceases to view malware as static points scattered in a vacuum. 
+Instead, it correctly interprets adversarial evolution as a fluid, dynamic physical system—a 
+continuous vector field punctuated by rapid, stochastic jumps triggered by novel exploit kits or 
+geopolitical shifts. 
+The integration of the BODMAS dataset ensures that the model is trained on realistic, densely 
+timestamped adversarial behavior, while the strict adherence to the TESSERACT evaluation 
+framework guarantees that the model's resilience to drift is mathematically validated against 
+strict temporal gaps. Furthermore, by identifying and preparing for the risks associated with 
+stiff ODEs and the NFE explosion, the architecture maintains computational feasibility for 
+real-world deployment. 
+If validated according to the rigorous metrics proposed herein, the capability to mathematically 
+forecast the trajectory of adversarial evolution will fundamentally alter the defensive posture of 
+the cybersecurity industry. It transitions automated threat detection from an endless, reactive 
+patching cycle into a proactive, predictive science, where the continuous evolution of the 
+adversary is actively integrated into the fabric of the defensive model. 
+Works cited 
+1.​ TESSERACT: Eliminating Experimental Bias in Malware Classification across Space 
+and Time | USENIX, 
+https://www.usenix.org/conference/usenixsecurity19/presentation/pendlebury 
+2.​ [1807.07838] TESSERACT: Eliminating Experimental Bias in Malware Classification 
+across Space and Time - arXiv, https://arxiv.org/abs/1807.07838 
+3.​ TESSERACT: Eliminating Experimental Bias in Malware Classification across Space 
+and Time (Extended Version) - arXiv, https://arxiv.org/html/2402.01359v2 
+4.​ TESSERACT: Eliminating Experimental Bias in Malware Classification across Space 
+
+----- PAGE 13 -----
+and Time - USENIX, https://www.usenix.org/system/files/sec19-pendlebury.pdf 
+5.​ MORPH: Towards Automated Concept Drift Adaptation for Malware Detection - 
+arXiv, https://arxiv.org/html/2401.12790v1 
+6.​ Empirical Evaluation of Concept Drift in ML-Based Android Malware Detection, 
+https://www.researchgate.net/publication/394121805_Empirical_Evaluation_of_Co
+ncept_Drift_in_ML-Based_Android_Malware_Detection 
+7.​ Detecting Concept Drift in Evolving Malware Families Using Rule-Based Classifier 
+Representations - arXiv, https://arxiv.org/html/2604.22629v1 
+8.​ [2502.14135] Cluster Analysis and Concept Drift Detection in Malware - arXiv, 
+https://arxiv.org/abs/2502.14135 
+9.​ Going Proactive and Explanatory Against Malware Concept Drift - arXiv, 
+https://arxiv.org/html/2405.04095v1 
+10.​Behavioral Drift–Aware Malware Detection: A Survey of Graph Neural Networks 
+for Explainable and Operational Deployment - isrdo, 
+https://isrdo.org/journal/SRJSET/currentissue/htmlview/behavioral-driftaware-mal
+ware-detection-a-survey-of-graph-neural-networks-for-explainable-and-operat
+ional-deployment 
+11.​TESSERACT: Eliminating Experimental Bias in Malware Classification across Space 
+and Time - King's College London Research Portal, 
+https://kclpure.kcl.ac.uk/portal/en/publications/tesseract-eliminating-experimenta
+l-bias-in-malware-classification/ 
+12.​(PDF) Breaking Out from the TESSERACT: Reassessing ML-based Malware 
+Detection under Spatio-Temporal Drift - ResearchGate, 
+https://www.researchgate.net/publication/393184496_Breaking_Out_from_the_TE
+SSERACT_Reassessing_ML-based_Malware_Detection_under_Spatio-Temporal_D
+rift 
+13.​Breaking Out from the Tesseract: Reassessing ML-based Malware Detection 
+under Spatio-Temporal Drift - BIFOLD Berlin, 
+https://www.bifold.berlin/impact-transfer/publications/view/publication-detail/bre
+aking-out-from-the-tesseract-reassessing-ml-based-malware-detection-under-
+spatio-temporal-drift 
+14.​Revisiting Concept Drift in Windows Malware Detection: Adaptation to Real 
+Drifted Malware with Minimal Samples - NDSS Symposium, 
+https://www.ndss-symposium.org/wp-content/uploads/2025-830-paper.pdf 
+15.​TESSERACT: Eliminating Experimental Bias in Malware Classification across Space 
+and Time (Extended Version) - arXiv, https://arxiv.org/html/2402.01359v1 
+16.​[2212.13714] Continuous Depth Recurrent Neural Differential Equations - arXiv, 
+https://arxiv.org/abs/2212.13714 
+17.​NEURAL JUMP ORDINARY DIFFERENTIAL EQUATIONS: CONSISTENT 
+CONTINUOUS-TIME PREDICTION AND FILTERING - arXiv, 
+https://arxiv.org/pdf/2006.04727 
+18.​Neural ODEs: Continuous-Depth Deep Learning Models, 
+https://hunterheidenreich.com/notes/machine-learning/generative-models/neural
+-odes/ 
+19.​Latent Ordinary Differential Equations for Irregularly-Sampled Time Series, 
+
+----- PAGE 14 -----
+https://proceedings.neurips.cc/paper/2019/hash/42a6845a557bef704ad8ac9cb44
+61d43-Abstract.html 
+20.​[1806.07366] Neural Ordinary Differential Equations - arXiv, 
+https://arxiv.org/abs/1806.07366 
+21.​Neural Ordinary Differential Equations, 
+https://papers.neurips.cc/paper/7892-neural-ordinary-differential-equations.pdf 
+22.​[2103.12413] Neural ODE Processes - arXiv, https://arxiv.org/abs/2103.12413 
+23.​[2006.04727] Neural Jump Ordinary Differential Equations: Consistent 
+Continuous-Time Prediction and Filtering - arXiv, https://arxiv.org/abs/2006.04727 
+24.​BODMAS: An Open Dataset for Learning based Temporal Analysis of PE Malware 
+- Gang Wang, https://gangw.cs.illinois.edu/DLS21_BODMAS.pdf 
+25.​Neural Jump ODEs: Continuous-Time Hybrid Models - Emergent Mind, 
+https://www.emergentmind.com/topics/neural-jump-ordinary-differential-equati
+ons-njodes 
+26.​Augmented Neural ODEs, 
+http://papers.neurips.cc/paper/8577-augmented-neural-odes.pdf 
+27.​Chapter 3: Neural Ordinary Differential Equations - Deep Implicit Layers, 
+http://implicit-layers-tutorial.org/neural_odes/ 
+28.​Neural Jump Ordinary Differential Equations: Consistent Continuous-Time 
+Prediction and Filtering - IDEAS/RePEc, 
+https://ideas.repec.org/p/arx/papers/2006.04727.html 
+29.​Neural Jump Stochastic Differential Equations - Cornell: Computer Science, 
+https://www.cs.cornell.edu/~arb/papers/njsde-neurips-2019.pdf 
+30.​Neural Differential Equations for Irregularly Sampled Time Series - Diva Portal, 
+https://uu.diva-portal.org/smash/get/diva2:2050557/FULLTEXT01.pdf 
+31.​BODMAS Malware Dataset - GitHub, https://github.com/whyisyoung/BODMAS 
+32.​BODMAS: An Open Dataset for Learning based Temporal Analysis of PE Malware, 
+https://www.semanticscholar.org/paper/BODMAS%3A-An-Open-Dataset-for-Lea
+rning-based-Temporal-Yang-Ciptadi/e374a82544c698a2a8191108a8e6a9a1eaa9f
+571 
+33.​BODMAS: An Open Dataset for Learning based Temporal Analysis of PE Malware, 
+https://scispace.com/papers/bodmas-an-open-dataset-for-learning-based-temp
+oral-analysis-48tewukpj6 
+34.​BODMAS Malware Dataset - Limin Yang, https://whyisyoung.github.io/BODMAS/ 
+35.​[2308.10821] Optimized Deep Learning Models for Malware Detection under 
+Concept Drift, https://arxiv.org/abs/2308.10821 
+36.​The SOREL-20M dataset - Squarespace, 
+https://static1.squarespace.com/static/59b5d23659cc681cdd75f9dc/t/638be02d1
+c13dd4c9f8d40ca/1670111278636/camlis_2021_harang.pdf 
+37.​POSTER: Enabling Fair ML Evaluations for Security, 
+https://s2lab.cs.ucl.ac.uk/downloads/tesseract-poster-paper.pdf 
+38.​Neural ODE Approach - Emergent Mind, 
+https://www.emergentmind.com/topics/neural-ode-approach 
+39.​Neural ODEs for Stiff Systems: Implicit Single-Step Methods - arXiv, 
+https://arxiv.org/html/2410.05592v1 
+
+----- PAGE 15 -----
+40.​Training stiff neural ordinary differential equations with implicit single-step 
+methods - PMC, https://pmc.ncbi.nlm.nih.gov/articles/PMC11646139/ 
+41.​Stiff neural ordinary differential equations - DSpace@MIT, 
+https://dspace.mit.edu/entities/publication/2a02423c-7791-4b39-9598-a64b0d2a
+5eda 
+42.​Neural ordinary differential equations for model order reduction of stiff systems - 
+Dipartimento di Matematica - Politecnico di Milano, 
+https://www.mate.polimi.it/biblioteca/add/qmox/53-2024.pdf 
+43.​Research Gaps in Neural ODE. Neural Ordinary Differential Equations… | by 
+Farshad Noravesh | Medium, 
+https://medium.com/@noraveshfarshad/research-gaps-in-neural-ode-8480aaa5
+661b 
+44.​Taylor-Lagrange Neural Ordinary Differential Equations: Toward Fast Training and 
+Evaluation of Neural ODEs - IJCAI, 
+https://www.ijcai.org/proceedings/2022/0405.pdf 
+45.​Convergence of Continuous Normalizing Flows for Learning Probability 
+Distributions - arXiv, https://arxiv.org/abs/2404.00551 
+46.​Continuous Normalizing Flows (CNF) - Emergent Mind, 
+https://www.emergentmind.com/topics/continuous-normalizing-flows-cnf 
+47.​Normalising Flows and Neural ODEs | Back2Numbers - Emmanuel Rialland, 
+https://emmanuel-r8.github.io/post/2020/09/11/normalising-flows/ 
+48.​Neural Jump Ordinary Differential Equations: Consistent Continuous-Time 
+Prediction and Filtering | OpenReview, 
+https://openreview.net/forum?id=JFKR3WqwyXR 
+49.​[2602.08980] When do neural ordinary differential equations generalize on 
+complex networks? - arXiv, https://arxiv.org/abs/2602.08980 
+
+================================================================================
+EXTRACTING: Capstone_Project_Proposal .pdf
+================================================================================
+Pages: 3
+
+----- PAGE 1 -----
+RAMDEOBABA UNIVERSITY, NAGPUR 
+Department of Electronics Engineering 
+CAPSTONE PROJECT PROPOSAL 
+Course: Deep Learning Lab   |   Academic Session: 2026-27   |   Semester: V 
+Project Title: 
+Modelling Malware Concept Drift Using Neural ODEs 
+Team Member 1: 
+Name: Rinkle Jain                           Roll No.: 42 
+Team Member 2: 
+Name: Rohan Pendharkar                   Roll No.: 43  
+Team Member 3: 
+Name: Rakshit Waze                            Roll No.: 40 
+Team Member 4: 
+Name: Neha Kewalramani                   Roll No.: 32 
+1. Problem Statement and Motivation 
+Malware detection models trained with machine learning usually score above 99% accuracy when tested in the lab, 
+but their performance drops sharply once deployed, sometimes by close to 50% within a few months. This happens 
+because attackers keep changing their code, packers and delivery methods, so the relationship between a file's 
+features and whether it is malicious keeps shifting. This is called concept drift. Most existing classifiers (Random 
+Forest, XGBoost, MLPs) learn one fixed decision boundary and never update it, so they slowly become outdated. 
+Even random-forest based classifiers cannot tell when or how the malware landscape is moving. This project tries to 
+model that movement directly, using a continuous-time model (Neural ODE) that learns how malware features 
+evolve over time, instead of freezing a boundary at one point in time. 
+2. Project Objectives 
+1. To design a Latent Neural ODE model that represents malware feature drift as a continuous process rather than a 
+fixed decision boundary. 
+2. To train and test the model using strict month-wise (chronological) data splits so that future malware samples 
+never leak into training, unlike random k-fold splits. 
+3. To measure how much the model's accuracy decays over time using the Area Under Time (AUT) metric, and 
+compare this decay against static baseline models (XGBoost, LightGBM, MLP). 
+4. To handle the class imbalance in the dataset (malware vs benign files) using Focal Loss so rare malware samples 
+are not ignored during training. 
+5. (Stretch goal, if time permits) To add a jump-update mechanism to the ODE so it can react to sudden, one-time 
+drift events, such as the spike in malware activity seen around the COVID-19 period in the dataset. 
+3. Dataset 
+Dataset Name 
+BODMAS (Blue Hexagon Open Dataset for Malware Analysis) 
+Dataset Source 
+Publicly available, Yang et al. (2021), GitHub: 
+whyisyoung/BODMAS 
+Dataset Size 
+134,435 samples (57,293 malware + 77,142 benign), collected 
+over 14 months (Aug 2019 - Sep 2020) 
+Type of Data 
+Tabular / Time-Series - each file is a pre-extracted 2,381-
+dimensional numeric feature vector (from PE header, entropy, 
+imports, byte histograms) 
+No. of Classes 
+2 (Benign, Malicious) - binary classification 
+
+----- PAGE 2 -----
+We picked BODMAS over bigger datasets like EMBER or SOREL-20M because it has a proper timestamp for every 
+sample, spread across 14 continuous months. That timeline is exactly what is needed for an ODE-based model, since 
+the whole point is to learn how the feature space moves month to month, not just classify a random shuffled set of 
+files. The dataset is public and does not need any special access, and since it's only structural file metadata, there's 
+no privacy or PII concern. 
+4. Proposed Methodology 
+Raw PE Features (2381-d) → Encoder (compress to latent state) → Neural ODE Solver (evolve latent state through time) → 
+Decoder → Benign / Malicious Prediction 
+Proposed Model / Architecture: Latent Neural ODE (encoder-solver-decoder pipeline). 
+An encoder network first compresses the 2,381 raw features of a file into a smaller latent vector (around 64 
+dimensions). Instead of feeding this into a normal classifier straight away, we treat this latent vector as the starting 
+point of a differential equation and let a small neural network (the ODE function) describe how this state should 
+keep changing as time moves forward. An ODE solver (Dormand-Prince / dopri5) then integrates this equation to 
+project the file's latent representation forward to the time it needs to be classified at. A decoder (a simple MLP) then 
+takes this evolved latent state and outputs whether the file is benign or malicious. 
+Brief justification: A normal classifier only knows about the training months it saw. An RNN/LSTM also assumes fixed 
+and evenly spaced time steps, but malware doesn't appear on a fixed schedule; sometimes there are ten variants in 
+one week and then nothing for two months. A Neural ODE does not have this constraint since it works in continuous 
+time and can be evaluated at any gap. To make backpropagation possible without running out of GPU memory, we 
+use the adjoint sensitivity method, which keeps memory usage constant no matter how many integration steps the 
+solver takes. This is what makes it possible to train this on a single consumer GPU instead of needing a cluster. 
+5. Experimental and Evaluation Plan 
+Data Split 
+Training: Months 0-7 (~57%)   Validation: Months 8-9 (~14%)   
+Testing: Months 10-13 (~29%) - split chronologically, not randomly 
+Loss Function 
+Focal Loss (handles the imbalance between benign and malicious 
+samples better than plain cross-entropy) 
+Optimizer 
+Adam, with the ODE trained through the adjoint sensitivity 
+method 
+Evaluation Metrics 
+AUROC, Macro F1-score, and Area Under Time (AUT) to track 
+performance decay month by month 
+Baseline / Comparison 
+XGBoost, LightGBM, and a parameter-matched MLP, all trained on 
+the same chronological split 
+The main experiment is simple: train every model (ours and the baselines) only on the first eight months, then test 
+all of them on the last four months, which the models have never seen. We expect the static models (XGBoost, MLP) 
+to show a clear drop in AUROC as we move further into the test months, while we want to see whether the Neural 
+ODE model's AUROC stays flatter across this period. We will also do a couple of ablations, like removing the ODE 
+solver to check that it is actually the continuous integration helping and not just the encoder/decoder network. 
+6. Expected Outcome / Deliverables 
+- A trained and evaluated Latent Neural ODE model for malware classification, along with the static baseline models 
+trained on the same data. 
+- Month-by-month AUROC / AUT plots comparing how much each model's performance drops over the four test 
+months. 
+- A written comparison of the ODE model against the static baselines, including cases where the ODE model does not 
+help much, and why. 
+
+----- PAGE 3 -----
+- If time allows, a small extension where the model reacts to a sudden drift event (the COVID-19 period spike in the 
+dataset) using a jump-update mechanism, along with a UMAP visualization of how the malware clusters move in the 
+latent space over time. 
+7. Work Distribution 
+Sr. 
+No. 
+Team Member 
+Major Responsibility 
+1 
+Member 1 
+Data collection, preprocessing, and building the chronological 
+train/val/test splits 
+2 
+Member 2 
+Implementing and training the static baseline models 
+(XGBoost, LightGBM, MLP) 
+3 
+Member 3 
+Implementing the Latent Neural ODE (encoder, solver, 
+decoder) and the adjoint training loop 
+4 
+Member 4 
+Evaluation (AUT metric, plots), ablations, and final 
+report/presentation 
+Every member will stay involved in all stages and be able to explain the complete project, not just their assigned 
+part. 
+8. Proposed Timeline 
+Phase 
+Proposed Activity 
+Phase 1 
+Problem finalization, data acquisition, and building chronological splits 
+Phase 2 
+Preprocessing and static baseline implementation (XGBoost, LightGBM, MLP) 
+Phase 3 
+Neural ODE model development and training (encoder, solver, decoder, adjoint 
+method) 
+Phase 4 
+Experimentation: AUT evaluation, baseline comparison, solver/ablation tuning 
+Phase 5 
+Error analysis and, if time permits, the jump-network extension 
+Phase 6 
+Final demonstration, report writing and presentation 
+9. References 
+[1] R. T. Q. Chen, Y. Rubanova, J. Bettencourt, and D. Duvenaud, "Neural Ordinary Differential Equations," NeurIPS, 
+2018. 
+[2] Y. Rubanova, R. T. Q. Chen, and D. Duvenaud, "Latent Ordinary Differential Equations for Irregularly-Sampled 
+Time Series," NeurIPS, 2019. 
+[3] C. Herrera, F. Krach, and J. Teichmann, "Neural Jump Ordinary Differential Equations," arXiv:2006.04727, 2020. 
+[4] F. Pendlebury, F. Pierazzi, R. Jordaney, J. Kinder, and L. Cavallaro, "TESSERACT: Eliminating Experimental Bias in 
+Malware Classification across Space and Time," USENIX Security, 2019. 
+[5] L. Yang, A. Ciptadi, I. Laziuk, A. Ahmadzadeh, and G. Wang, "BODMAS: An Open Dataset for Learning-based 
+Temporal Analysis of PE Malware," IEEE DLS, 2021. 
+[6] BODMAS Dataset repository, https://github.com/whyisyoung/BODMAS 

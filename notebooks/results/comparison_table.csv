@@ -1,0 +1,7 @@
+model,type,auroc,macro_f1,aut
+LightGBM (static),static,0.9999,0.9953,2.9997
+XGBoost (static),static,0.9999,0.9943,2.9996
+MLP (static),static,0.9966,0.9787,2.9915
+Neural ODE (rk4),continuous,0.8564,0.7833,2.5719
+Neural ODE (dopri5),continuous,0.81,0.744,2.42
+Decoupled (no ODE),continuous,0.6745,0.5403,1.9348
