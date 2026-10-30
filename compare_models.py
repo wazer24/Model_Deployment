@@ -4,8 +4,7 @@ from sklearn.ensemble import HistGradientBoostingClassifier, RandomForestClassif
 from sklearn.linear_model import LogisticRegression
 from sklearn.neural_network import MLPClassifier
 from sklearn.preprocessing import StandardScaler
-from sklearn.metrics import (roc_auc_score, f1_score, precision_score,
-                             recall_score, accuracy_score, confusion_matrix)
+from sklearn.metrics import (roc_auc_score, f1_score, precision_score,recall_score, accuracy_score, confusion_matrix)
 
 df = pd.read_parquet("dataset/bodmas_clean_features.parquet")
 feat_cols = [c for c in df.columns if c.startswith("F") and c[1:].isdigit()]

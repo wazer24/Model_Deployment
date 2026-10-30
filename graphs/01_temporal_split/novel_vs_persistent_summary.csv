@@ -1,0 +1,3 @@
+group,families,test_malware_samples,auroc
+Novel,90,979,0.9999
+Persistent,180,16012,0.9999
